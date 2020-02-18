@@ -32,6 +32,7 @@ from dbt.exceptions import (
     ref_bad_context,
     source_target_not_found,
     wrapped_exports,
+    warn_or_error,
 )
 from dbt.logger import GLOBAL_LOGGER as logger  # noqa
 from dbt.node_types import NodeType
@@ -42,6 +43,8 @@ from dbt.utils import (
 )
 
 import agate
+import concurrent
+import time
 
 
 _MISSING = object()
@@ -622,6 +625,65 @@ class ProviderContext(ManifestContext):
     @contextproperty
     def sql_now(self) -> str:
         return self.adapter.date_function()
+
+    @contextmember
+    def map_threaded(self, tasks: List[Dict], max_workers: Optional[int] = 1) -> List[Dict]:
+        import dbt
+
+        results: List[agate.Table] = []
+        exceptions: List[Exception] = []
+
+        def worker(idx, sql, meta):
+            with self.adapter.connection_named(f"worker_{idx}"):
+                start = time.monotonic()
+                self.adapter.execute("begin")
+                status, data = self.adapter.execute(sql, auto_begin=False, fetch=True)
+                self.adapter.execute("commit")
+                meta["elapsed_time"] = round(time.monotonic() - start, 2)
+
+                return {
+                    "status": status,
+                    "data": data,
+                    "meta": meta,
+                }
+
+        results = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for idx, task in enumerate(tasks):
+                futures.append(
+                    executor.submit(worker, idx, task["sql"], meta=task.get("meta", None))
+                )
+
+            concurrent.futures.wait(futures)
+
+            overall = {"rows": 0, "elapsed_time": 0}
+            for future in concurrent.futures.as_completed(futures):
+                exc = future.exception()
+                if exc is None:
+                    output = future.result()
+                    rows_inserted = int(output["status"].split(" ")[-1])
+                    overall["rows"] += rows_inserted
+                    overall["elapsed_time"] += output["meta"]["elapsed_time"]
+
+                    message = (
+                        f"Batch {output['meta']['idx']}/{output['meta']['batch_steps']}"
+                        + f" ({output['meta']['batch_start']} -> {output['meta']['batch_end']}):"
+                        + f" {overall['rows']} rows (+ {rows_inserted} in"
+                        + f" {output['meta']['elapsed_time']} seconds"
+                        + f" ~ {round(rows_inserted / output['meta']['elapsed_time'], 2)} r/s"
+                        + f" [overall: {round(overall['rows'] / overall['elapsed_time'], 2)} r/s])"
+                    )
+                    dbt.ui.printer.print_timestamped_line(message)
+
+                    results.append(output)
+                elif isinstance(exc, KeyboardInterrupt) or not isinstance(exc, Exception):
+                    raise exc
+                else:
+                    warn_or_error(f"Encountered an error while generating catalog: {str(exc)}")
+                    exceptions.append(exc)
+
+        return results
 
 
 class MacroContext(ProviderContext):
