@@ -12,8 +12,10 @@ from hologram.helpers import HyphenatedJsonSchemaMixin, register_pattern, \
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Union, Any, NewType
 
-PIN_PACKAGE_URL = 'https://docs.getdbt.com/docs/package-management#section-specifying-package-versions' # noqa
-DEFAULT_SEND_ANONYMOUS_USAGE_STATS = True
+PIN_PACKAGE_URL = (
+    "https://docs.getdbt.com/docs/package-management#section-specifying-package-versions"  # noqa
+)
+DEFAULT_SEND_ANONYMOUS_USAGE_STATS = False
 DEFAULT_USE_COLORS = True
 
 
