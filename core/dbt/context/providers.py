@@ -640,6 +640,15 @@ class ProviderContext(ManifestContext):
                 status, data = self.adapter.execute(sql, auto_begin=False, fetch=True)
                 self.adapter.execute("commit")
                 meta["elapsed_time"] = round(time.monotonic() - start, 2)
+                rows_inserted = int(status.split(" ")[-1])
+
+                message = (
+                    f"Batch {meta['idx']}/{meta['batch_steps']}"
+                    + f" ({meta['batch_start']} -> {meta['batch_end']}):"
+                    + f" + {rows_inserted} in {meta['elapsed_time']} seconds"
+                    + f" ~ {round(rows_inserted / meta['elapsed_time'], 2)} r/s"
+                )
+                dbt.ui.printer.print_timestamped_line(message)
 
                 return {
                     "status": status,
@@ -666,15 +675,15 @@ class ProviderContext(ManifestContext):
                     overall["rows"] += rows_inserted
                     overall["elapsed_time"] += output["meta"]["elapsed_time"]
 
-                    message = (
-                        f"Batch {output['meta']['idx']}/{output['meta']['batch_steps']}"
-                        + f" ({output['meta']['batch_start']} -> {output['meta']['batch_end']}):"
-                        + f" {overall['rows']} rows (+ {rows_inserted} in"
-                        + f" {output['meta']['elapsed_time']} seconds"
-                        + f" ~ {round(rows_inserted / output['meta']['elapsed_time'], 2)} r/s"
-                        + f" [overall: {round(overall['rows'] / overall['elapsed_time'], 2)} r/s])"
-                    )
-                    dbt.ui.printer.print_timestamped_line(message)
+                    # message = (
+                    #     f"Batch {output['meta']['idx']}/{output['meta']['batch_steps']}"
+                    #     + f" ({output['meta']['batch_start']} -> {output['meta']['batch_end']}):"
+                    #     + f" {overall['rows']} rows (+ {rows_inserted} in"
+                    #     + f" {output['meta']['elapsed_time']} seconds"
+                    #     + f" ~ {round(rows_inserted / output['meta']['elapsed_time'], 2)} r/s"
+                    #     + f" [overall: {round(overall['rows'] / overall['elapsed_time'], 2)} r/s])"
+                    # )
+                    # dbt.ui.printer.print_timestamped_line(message)
 
                     results.append(output)
                 elif isinstance(exc, KeyboardInterrupt) or not isinstance(exc, Exception):
